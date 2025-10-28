@@ -9,18 +9,11 @@
         <Icon icon="material-symbols:edit-outline-sharp" width="22" height="22" />
       </div>
     </div>
-<<<<<<< HEAD
     <!-- 大学链接部分（可以在设置中配置显示） -->
     <div class="university-link" v-if="universityLink && universityLink.url">
       <a :href="universityLink.url" target="_blank" class="university-link-item">
         <Icon icon="mdi:school" width="20" height="20" />
         <span>{{ universityLink.name || 'University Website' }}</span>
-=======
-    <div class="university-link">
-      <a href="https://pu.edu.kg/" target="_blank" class="university-link-item">
-        <Icon icon="mdi:school" width="20" height="20" />
-        <span>Pamir University官网</span>
->>>>>>> e5e7cab (2)
       </a>
     </div>
     <div class="toolbar">
