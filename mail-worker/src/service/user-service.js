@@ -2,7 +2,9 @@ import BizError from '../error/biz-error';
 import accountService from './account-service';
 import orm from '../entity/orm';
 import user from '../entity/user';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import account from '../entity/account';
+import email from '../entity/email';
+import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { emailConst, isDel, roleConst, userConst } from '../const/entity-const';
 import kvConst from '../const/kv-const';
 import KvConst from '../const/kv-const';
@@ -16,6 +18,20 @@ import saltHashUtils from '../utils/crypto-utils';
 import constant from '../const/constant';
 import { t } from '../i18n/i18n'
 import reqUtils from '../utils/req-utils';
+
+// 排序字段映射
+function getSortColumn(sortField) {
+	const sortMap = {
+		'oauthId': user.oauthId,
+		'oauthUsername': user.oauthUsername,
+		'trustLevel': user.trustLevel,
+		'createTime': user.createTime,
+		'status': user.status,
+		'type': user.type,
+		// 注意：receiveEmailCount, sendEmailCount, accountCount 需要在查询后排序
+	};
+	return sortMap[sortField];
+}
 
 const userService = {
 
@@ -33,10 +49,16 @@ const userService = {
 		user.userId = userRow.userId;
 		user.sendCount = userRow.sendCount;
 		user.email = userRow.email;
-		user.accountId = account.accountId;
-		user.name = account.name;
+		// 如果没有账户，提供默认值
+		user.accountId = account ? account.accountId : 0;
+		user.name = account ? account.name : `User${userRow.userId}`;
 		user.permKeys = permKeys;
-		user.role = roleRow
+		user.role = roleRow;
+		// 添加LinuxDo相关信息
+		user.oauthProvider = userRow.oauthProvider;
+		user.oauthId = userRow.oauthId;
+		user.oauthUsername = userRow.oauthUsername;
+		user.avatarTemplate = userRow.avatarTemplate;
 
 		if (c.env.admin === userRow.email) {
 			user.role = constant.ADMIN_ROLE
@@ -110,7 +132,7 @@ const userService = {
 
 	async list(c, params) {
 
-		let { num, size, email, timeSort, status } = params;
+		let { num, size, keyword, timeSort, status, sortField, sortOrder } = params;
 
 		size = Number(size);
 		num = Number(num);
@@ -129,9 +151,37 @@ const userService = {
 			conditions.push(eq(user.isDel, isDel.NORMAL));
 		}
 
+		// 支持搜索邮箱、用户ID、LinuxDo用户名和所有账户邮箱
+		if (keyword) {
+			// 先获取匹配关键词的账户用户ID
+			const matchingAccountUserIds = await orm(c)
+				.select({ userId: account.userId })
+				.from(account)
+				.where(and(
+					sql`${account.email} COLLATE NOCASE LIKE ${'%' + keyword + '%'}`,
+					eq(account.isDel, isDel.NORMAL)
+				))
+				.all();
 
-		if (email) {
-			conditions.push(sql`${user.email} COLLATE NOCASE LIKE ${email + '%'}`);
+			const accountUserIds = matchingAccountUserIds.map(item => item.userId);
+
+			// 构建搜索条件 - 使用or函数
+			const searchConditions = [
+				// 1. 用户主邮箱模糊匹配
+				sql`${user.email} COLLATE NOCASE LIKE ${'%' + keyword + '%'}`,
+				// 2. LinuxDo论坛ID数字匹配
+				sql`CAST(${user.oauthId} AS TEXT) LIKE ${'%' + keyword + '%'}`,
+				// 3. LinuxDo用户名模糊匹配
+				sql`${user.oauthUsername} COLLATE NOCASE LIKE ${'%' + keyword + '%'}`
+			];
+
+			// 4. 所有关联邮箱匹配
+			if (accountUserIds.length > 0) {
+				searchConditions.push(inArray(user.userId, accountUserIds));
+			}
+
+			// 使用or函数连接搜索条件
+			conditions.push(or(...searchConditions));
 		}
 
 
@@ -143,31 +193,121 @@ const userService = {
 		const query = orm(c).select().from(user)
 			.where(and(...conditions));
 
-
-		if (timeSort) {
+		// 处理排序
+		if (sortField && sortOrder) {
+			const sortColumn = getSortColumn(sortField);
+			if (sortColumn) {
+				if (sortOrder === 'asc') {
+					query.orderBy(asc(sortColumn));
+				} else {
+					query.orderBy(desc(sortColumn));
+				}
+			} else {
+				// 对于计算字段，暂时使用默认排序，在获取数据后再排序
+				if (timeSort) {
+					query.orderBy(asc(user.userId));
+				} else {
+					query.orderBy(desc(user.userId));
+				}
+			}
+		} else if (timeSort) {
 			query.orderBy(asc(user.userId));
 		} else {
 			query.orderBy(desc(user.userId));
 		}
 
-		const list = await query.limit(size).offset(num);
+		// 使用JOIN查询在数据库层面进行全局排序，避免SQL变量过多的问题
+		let list, total;
 
-		const { total } = await orm(c)
-			.select({ total: count() })
-			.from(user)
-			.where(and(...conditions)).get();
+		if (sortField && sortOrder && ['receiveEmailCount', 'sendEmailCount', 'accountCount'].includes(sortField)) {
+			// 对于计算字段，使用JOIN查询直接在数据库层面排序
+			const sortDirection = sortOrder === 'asc' ? asc : desc;
+
+			// 构建排序子查询
+			let sortSubquery;
+
+			if (sortField === 'receiveEmailCount') {
+				sortSubquery = orm(c)
+					.select({
+						userId: email.userId,
+						count: count(email.emailId).as('email_count')
+					})
+					.from(email)
+					.where(and(
+						eq(email.type, emailConst.type.RECEIVE),
+						eq(email.isDel, isDel.NORMAL)
+					))
+					.groupBy(email.userId)
+					.as('receive_counts');
+			} else if (sortField === 'sendEmailCount') {
+				sortSubquery = orm(c)
+					.select({
+						userId: email.userId,
+						count: count(email.emailId).as('email_count')
+					})
+					.from(email)
+					.where(and(
+						eq(email.type, emailConst.type.SEND),
+						eq(email.isDel, isDel.NORMAL)
+					))
+					.groupBy(email.userId)
+					.as('send_counts');
+			} else if (sortField === 'accountCount') {
+				sortSubquery = orm(c)
+					.select({
+						userId: account.userId,
+						count: count(account.accountId).as('account_count')
+					})
+					.from(account)
+					.where(eq(account.isDel, isDel.NORMAL))
+					.groupBy(account.userId)
+					.as('account_counts');
+			}
+
+			// 主查询：JOIN用户表和统计子查询
+			const sortedQuery = orm(c)
+				.select({
+					...user
+				})
+				.from(user)
+				.leftJoin(sortSubquery, eq(user.userId, sortSubquery.userId))
+				.where(and(...conditions))
+				.orderBy(sortDirection(sql`COALESCE(${sortSubquery.count}, 0)`));
+
+			// 获取总数
+			const { total: totalCount } = await orm(c)
+				.select({ total: count() })
+				.from(user)
+				.where(and(...conditions)).get();
+
+			total = totalCount;
+
+			// 分页查询
+			list = await sortedQuery.limit(size).offset(num);
+		} else {
+			// 对于非计算字段，使用原有的分页查询
+			list = await query.limit(size).offset(num);
+			const { total: totalCount } = await orm(c)
+				.select({ total: count() })
+				.from(user)
+				.where(and(...conditions)).get();
+
+			total = totalCount;
+		}
+
+		// 获取用户相关数据
 		const userIds = list.map(user => user.userId);
-
 		const types = [...new Set(list.map(user => user.type))];
 
-		const [emailCounts, delEmailCounts, sendCounts, delSendCounts, accountCounts, delAccountCounts, roleList] = await Promise.all([
+		const [emailCounts, delEmailCounts, sendCounts, delSendCounts, accountCounts, delAccountCounts, roleList, userAccounts] = await Promise.all([
 			emailService.selectUserEmailCountList(c, userIds, emailConst.type.RECEIVE),
 			emailService.selectUserEmailCountList(c, userIds, emailConst.type.RECEIVE, isDel.DELETE),
 			emailService.selectUserEmailCountList(c, userIds, emailConst.type.SEND),
 			emailService.selectUserEmailCountList(c, userIds, emailConst.type.SEND, isDel.DELETE),
 			accountService.selectUserAccountCountList(c, userIds),
 			accountService.selectUserAccountCountList(c, userIds, isDel.DELETE),
-			roleService.selectByIdsHasPermKey(c, types,'email:send')
+			roleService.selectByIdsHasPermKey(c, types,'email:send'),
+			accountService.selectByUserIds(c, userIds)
 		]);
 
 		const receiveMap = Object.fromEntries(emailCounts.map(item => [item.userId, item.count]));
@@ -178,8 +318,20 @@ const userService = {
 		const delSendMap = Object.fromEntries(delSendCounts.map(item => [item.userId, item.count]));
 		const delAccountMap = Object.fromEntries(delAccountCounts.map(item => [item.userId, item.count]));
 
-		for (const user of list) {
+		// 按用户ID分组账户信息
+		const userAccountsMap = {};
+		userAccounts.forEach(account => {
+			if (!userAccountsMap[account.userId]) {
+				userAccountsMap[account.userId] = [];
+			}
+			userAccountsMap[account.userId].push({
+				accountId: account.accountId,
+				email: account.email,
+				name: account.name
+			});
+		});
 
+		for (const user of list) {
 			const userId = user.userId;
 
 			user.receiveEmailCount = receiveMap[userId] || 0;
@@ -189,6 +341,9 @@ const userService = {
 			user.delReceiveEmailCount = delReceiveMap[userId] || 0;
 			user.delSendEmailCount = delSendMap[userId] || 0;
 			user.delAccountCount = delAccountMap[userId] || 0;
+
+			// 添加用户账户信息
+			user.accounts = userAccountsMap[userId] || [];
 
 			const roleIndex = roleList.findIndex(roleRow => user.type === roleRow.roleId);
 			let sendAction = {};
@@ -210,6 +365,8 @@ const userService = {
 
 			user.sendAction = sendAction;
 		}
+
+
 
 		return { list, total };
 	},
@@ -330,7 +487,8 @@ const userService = {
 
 		await userService.updateUserInfo(c, userId, true);
 
-		await accountService.insert(c, { userId: userId, email, type, name: emailUtils.getName(email) });
+		// 不再自动创建主邮箱账户，用户需要手动添加邮箱
+		// await accountService.insert(c, { userId: userId, email, type, name: emailUtils.getName(email) });
 	},
 
 	async resetDaySendCount(c) {
@@ -367,6 +525,88 @@ const userService = {
 			.where(eq(user.regKeyId, regKeyId))
 			.orderBy(desc(user.userId))
 			.all();
+	},
+
+	/**
+	 * 根据OAuth ID查询用户
+	 * @param {Object} c - Hono context
+	 * @param {string} provider - OAuth提供商
+	 * @param {string} oauthId - OAuth用户ID
+	 * @returns {Object|null} 用户信息
+	 */
+	selectByOAuthId(c, provider, oauthId) {
+		return orm(c).select().from(user).where(
+			and(
+				eq(user.oauthProvider, provider),
+				eq(user.oauthId, oauthId),
+				eq(user.isDel, isDel.NORMAL)
+			)
+		).get();
+	},
+
+	/**
+	 * 创建OAuth用户
+	 * @param {Object} c - Hono context
+	 * @param {Object} params - 用户参数
+	 * @returns {number} 用户ID
+	 */
+	async insertOAuthUser(c, params) {
+		const { userId } = await orm(c).insert(user).values({ ...params }).returning().get();
+		return userId;
+	},
+
+	/**
+	 * 关联OAuth信息到现有用户
+	 * @param {Object} c - Hono context
+	 * @param {number} userId - 用户ID
+	 * @param {string} provider - OAuth提供商
+	 * @param {string} oauthId - OAuth用户ID
+	 * @param {string} oauthUsername - OAuth用户名
+	 * @param {number} trustLevel - 信任等级
+	 * @param {string} avatarTemplate - 头像模板URL
+	 */
+	async linkOAuth(c, userId, provider, oauthId, oauthUsername, trustLevel = 0, avatarTemplate = null) {
+		await orm(c)
+			.update(user)
+			.set({
+				oauthProvider: provider,
+				oauthId: oauthId,
+				oauthUsername: oauthUsername,
+				avatarTemplate: avatarTemplate,
+				trustLevel: trustLevel
+			})
+			.where(eq(user.userId, userId))
+			.run();
+	},
+
+	/**
+	 * 重新激活已删除的用户
+	 * @param {Object} c - Hono context
+	 * @param {number} userId - 用户ID
+	 */
+	async reactivateUser(c, userId) {
+		await orm(c)
+			.update(user)
+			.set({
+				isDel: isDel.NORMAL,
+				status: userConst.status.NORMAL
+			})
+			.where(eq(user.userId, userId))
+			.run();
+	},
+
+	/**
+	 * 更新用户邮箱
+	 * @param {Object} c - Hono context
+	 * @param {number} userId - 用户ID
+	 * @param {string} newEmail - 新邮箱
+	 */
+	async updateUserEmail(c, userId, newEmail) {
+		await orm(c)
+			.update(user)
+			.set({ email: newEmail })
+			.where(eq(user.userId, userId))
+			.run();
 	}
 };
 

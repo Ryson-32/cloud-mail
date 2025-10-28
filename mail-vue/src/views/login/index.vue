@@ -11,11 +11,9 @@
     <div class="form-wrapper">
       <div class="container">
         <span class="form-title">{{ settingStore.settings.title }}</span>
-        <span class="form-desc" v-if="show === 'login'">{{ $t('loginTitle') }}</span>
-        <span class="form-desc" v-else>{{ $t('regTitle') }}</span>
         <div v-show="show === 'login'">
           <el-input :class="settingStore.settings.loginDomain === 0 ? 'email-input' : ''" v-model="form.email"
-                    type="text" :placeholder="$t('emailAccount')" autocomplete="off">
+                    type="text" placeholder="Email" autocomplete="off">
             <template #append v-if="settingStore.settings.loginDomain === 0">
               <div @click.stop="openSelect">
                 <el-select
@@ -39,11 +37,19 @@
               </div>
             </template>
           </el-input>
-          <el-input v-model="form.password" :placeholder="$t('password')" type="password" autocomplete="off">
+          <el-input v-model="form.password" placeholder="Password" type="password" autocomplete="off">
           </el-input>
           <el-button class="btn" type="primary" @click="submit" :loading="loginLoading"
-          >{{ $t('loginBtn') }}
+          >Sign In
           </el-button>
+
+          <button class="custom-oauth-btn" @click="loginWithLinuxDo" :disabled="oauthLoading">
+            <div v-if="oauthLoading" class="loading-spinner"></div>
+            <template v-else>
+              <Icon icon="simple-icons:discourse" width="16" height="16"/>
+              <span>Sign in with Linux.do</span>
+            </template>
+          </button>
         </div>
         <div v-show="show !== 'login'">
           <el-input class="email-input" v-model="registerForm.email" type="text" :placeholder="$t('emailAccount')"
@@ -125,6 +131,7 @@ const userStore = useUserStore();
 const uiStore = useUiStore();
 const settingStore = useSettingStore();
 const loginLoading = ref(false)
+const oauthLoading = ref(false)
 const show = ref('login')
 const form = reactive({
   email: '',
@@ -169,13 +176,7 @@ window.onTurnstileError = (e) => {
   }, 1500)
 };
 
-window.loadAfter = (e) => {
-  console.log('loadAfter')
-}
 
-window.loadBefore = (e) => {
-  console.log('loadBefore')
-}
 
 const loginOpacity = computed(() => {
   return `rgba(255, 255, 255, ${settingStore.settings.loginOpacity})`
@@ -242,6 +243,44 @@ const submit = () => {
   }).finally(() => {
     loginLoading.value = false
   })
+}
+
+const loginWithLinuxDo = async () => {
+  oauthLoading.value = true
+  try {
+    // 获取OAuth授权URL
+    const redirectUri = `${window.location.origin}/oauth/callback`
+    const response = await fetch('/api/oauth/authorize-url', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ redirectUri })
+    })
+
+    const result = await response.json()
+    if (result.code === 200) {
+      // 保存回调地址到localStorage
+      localStorage.setItem('oauth_redirect_uri', redirectUri)
+      // 重定向到Linux.do授权页面
+      window.location.href = result.data.authUrl
+    } else {
+      ElMessage({
+        message: result.message || 'OAuth授权失败',
+        type: 'error',
+        plain: true,
+      })
+    }
+  } catch (error) {
+    console.error('OAuth login error:', error)
+    ElMessage({
+      message: 'OAuth登录失败，请稍后重试',
+      type: 'error',
+      plain: true,
+    })
+  } finally {
+    oauthLoading.value = false
+  }
 }
 
 
@@ -395,46 +434,53 @@ function submitRegister() {
 
 .form-wrapper {
   position: fixed;
+  top: 0;
+  left: 0;
   right: 0;
+  bottom: 0;
+  width: 100%;
   height: 100%;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
-  @media (max-width: 767px) {
-    width: 100%;
-  }
 }
 
 .container {
-  background: v-bind(loginOpacity);
-  padding-left: 40px;
-  padding-right: 40px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(10px);
+  padding: 25px 35px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  width: 450px;
-  height: 100%;
-  border: 1px solid #e4e7ed;
-  box-shadow: var(--el-box-shadow-light);
+  width: 400px;
+  height: auto;
+  min-height: 320px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
   @media (max-width: 1024px) {
-    padding: 20px 18px;
-    width: 384px;
-    margin-left: 18px;
+    padding: 20px 25px;
+    width: 350px;
+    min-height: 300px;
   }
   @media (max-width: 767px) {
-    padding: 20px 18px;
-    border-radius: 6px;
-    height: fit-content;
-    width: 100%;
-    margin-right: 18px;
-    margin-left: 18px;
+    padding: 20px;
+    width: 90%;
+    max-width: 350px;
+    min-height: 280px;
+    border-radius: 8px;
   }
 
   .btn {
-    height: 36px;
     width: 100%;
+    height: 36px;
     border-radius: 6px;
+    margin-bottom: 18px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
   }
 
   .form-desc {
@@ -446,6 +492,8 @@ function submitRegister() {
   .form-title {
     font-weight: bold;
     font-size: 22px !important;
+    text-align: center;
+    margin-bottom: 24px;
   }
 
   .switch {
@@ -600,6 +648,77 @@ function submitRegister() {
   width: 180px;
   right: 50px;
   top: -90px;
+}
+
+.oauth-divider {
+  margin: 20px 0;
+  text-align: center;
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #e4e7ed;
+  }
+
+  span {
+    background: v-bind(loginOpacity);
+    padding: 0 15px;
+    color: #909399;
+    font-size: 14px;
+  }
+}
+
+.custom-oauth-btn {
+  width: 100%;
+  height: 40px;
+  background: #24292e;
+  border: 1px solid #24292e;
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.3s;
+  outline: none;
+  margin-top: 12px;
+
+  &:hover:not(:disabled) {
+    background: #1a1e22;
+    border-color: #1a1e22;
+  }
+
+  &:active:not(:disabled) {
+    background: #0f1114;
+    border-color: #0f1114;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top: 2px solid white;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 </style>

@@ -4,9 +4,9 @@
       <Icon class="icon" icon="ion:add-outline" width="23" height="23" @click="openAdd"/>
       <div class="search">
         <el-input
-            v-model="params.email"
+            v-model="params.keyword"
             class="search-input"
-            :placeholder="$t('searchByEmail')"
+            placeholder="搜索邮箱/ID/LinuxDo用户名"
         >
         </el-input>
       </div>
@@ -30,7 +30,7 @@
           <loading/>
         </div>
         <el-table
-            @filter-change="tableFilter"
+            @sort-change="handleSortChange"
             :empty-text="first ? '' : null"
             :default-expand-all="expandStatus"
             :data="users"
@@ -41,6 +41,24 @@
           <el-table-column :width="expandWidth" type="expand">
             <template #default="props">
               <div class="details">
+                <!-- 用户邮箱信息 -->
+                <div class="user-emails">
+                  <span class="details-item-title">用户邮箱:</span>
+                  <div class="email-list">
+                    <el-tag v-if="props.row.email" type="success" class="email-tag">
+                      {{ props.row.email }} (主邮箱)
+                    </el-tag>
+                    <el-tag
+                      v-for="account in (props.row.accounts || []).filter(acc => acc.email !== props.row.email)"
+                      :key="account.accountId"
+                      type="info"
+                      class="email-tag"
+                    >
+                      {{ account.email }}
+                    </el-tag>
+                  </div>
+                </div>
+
                 <div v-if="!sendNumShow"><span class="details-item-title">{{$t('tabSent')}}:</span>{{ props.row.sendEmailCount }}
                 </div>
                 <div v-if="!accountNumShow"><span class="details-item-title">{{$t('tabMailboxes')}}:</span>{{
@@ -68,6 +86,17 @@
                 <div><span class="details-item-title">{{$t('loginDevice')}}:</span>{{ props.row.device || $t('unknown') }}</div>
                 <div><span class="details-item-title">{{$t('loginSystem')}}:</span>{{ props.row.os || $t('unknown') }}</div>
                 <div><span class="details-item-title">{{$t('browserLogin')}}:</span>{{ props.row.browser || $t('unknown') }}</div>
+                <!-- LinuxDo信息 -->
+                <div v-if="props.row.oauthProvider === 'linux_do'">
+                  <span class="details-item-title">LinuxDo ID:</span>{{ props.row.oauthId || $t('unknown') }}
+                </div>
+                <div v-if="props.row.oauthProvider === 'linux_do'">
+                  <span class="details-item-title">LinuxDo用户名:</span>{{ props.row.oauthUsername || $t('unknown') }}
+                </div>
+                <div v-if="props.row.oauthProvider === 'linux_do'">
+                  <span class="details-item-title">信任等级:</span>
+                  <el-tag :type="getTrustLevelType(props.row.trustLevel)">{{ props.row.trustLevel }}</el-tag>
+                </div>
                 <div>
                   <span class="details-item-title">{{$t('sendEmail')}}:</span>
                   <span>{{ formatSendCount(props.row) }}</span>
@@ -82,40 +111,89 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column show-overflow-tooltip :tooltip-formatter="tableRowFormatter" :label="$t('tabEmailAddress')" :min-width="emailWidth">
+          <!-- 1. LinuxDo ID -->
+          <el-table-column show-overflow-tooltip label="LinuxDo ID" min-width="100" sortable="custom" prop="oauthId">
             <template #default="props">
-              <div class="email-row">{{ props.row.email }}</div>
+              <div class="user-id-row">
+                <el-tag v-if="props.row.oauthProvider === 'linux_do' && props.row.oauthId"
+                        type="primary" size="small">
+                  {{ parseInt(props.row.oauthId) }}
+                </el-tag>
+                <el-tag v-else type="info" size="small">
+                  {{ props.row.userId }}
+                </el-tag>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column :formatter="formatterReceive" label-class-name="receive" column-key="receive"
-                           :filtered-value="filteredValue" :filters="filters" :width="receiveWidth" :label="$t('tabReceived')"
-                           prop="receiveEmailCount"/>
-          <el-table-column :formatter="formatterSend" label-class-name="send" column-key="send"
-                           :filtered-value="filteredValue" :filters="filters" v-if="sendNumShow" :label="$t('tabSent')"
-                           prop="sendEmailCount"/>
-          <el-table-column :formatter="formatterAccount" label-class-name="account" column-key="account"
-                           :filtered-value="filteredValue" :filters="filters" v-if="accountNumShow" :label="$t('tabMailboxes')"
-                           prop="accountCount"/>
-          <el-table-column v-if="createTimeShow" :label="$t('tabRegisteredAt')" min-width="160" prop="createTime">
+
+          <!-- 2. LinuxDo用户名 -->
+          <el-table-column v-if="linuxdoShow" label="LinuxDo用户名" min-width="120" sortable="custom" prop="oauthUsername">
             <template #default="props">
-              {{ tzDayjs(props.row.createTime).format('YYYY-MM-DD HH:mm') }}
+              <div v-if="props.row.oauthProvider === 'linux_do'">
+                <el-tag size="small" type="success">{{ props.row.oauthUsername || '-' }}</el-tag>
+              </div>
+              <div v-else>-</div>
             </template>
           </el-table-column>
-          <el-table-column v-if="statusShow" min-width="60px" :label="$t('tabStatus')" prop="status">
+
+          <!-- 3. 信任等级 -->
+          <el-table-column v-if="trustLevelShow" label="信任等级" min-width="80" sortable="custom" prop="trustLevel">
             <template #default="props">
-              <el-tag disable-transitions v-if="props.row.isDel === 1" type="info">{{$t('deleted')}}</el-tag>
-              <el-tag disable-transitions v-else-if="props.row.status === 0" type="primary">{{$t('active')}}</el-tag>
-              <el-tag disable-transitions v-else-if="props.row.status === 1" type="danger">{{$t('banned')}}</el-tag>
+              <div v-if="props.row.oauthProvider === 'linux_do'">
+                <el-tag size="small" :type="getTrustLevelType(props.row.trustLevel)">
+                  {{ props.row.trustLevel }}
+                </el-tag>
+              </div>
+              <div v-else>-</div>
             </template>
           </el-table-column>
-          <el-table-column v-if="typeShow" :label="$t('tabRole')" min-width="140" prop="type">
+
+          <!-- 4. 注册时间 -->
+          <el-table-column v-if="createTimeShow" :label="$t('tabRegisteredAt')" min-width="120" sortable="custom" prop="createTime">
+            <template #default="props">
+              {{ tzDayjs(props.row.createTime).format('MM-DD HH:mm') }}
+            </template>
+          </el-table-column>
+
+          <!-- 5. 收件数量 -->
+          <el-table-column :label="$t('tabReceived')" min-width="80" sortable="custom" prop="receiveEmailCount">
+            <template #default="props">
+              {{ props.row.receiveEmailCount }}
+            </template>
+          </el-table-column>
+
+          <!-- 6. 发件数量 -->
+          <el-table-column v-if="sendNumShow" :label="$t('tabSent')" min-width="70" sortable="custom" prop="sendEmailCount">
+            <template #default="props">
+              {{ props.row.sendEmailCount }}
+            </template>
+          </el-table-column>
+
+          <!-- 7. 邮箱数量 -->
+          <el-table-column v-if="accountNumShow" :label="$t('tabMailboxes')" min-width="70" sortable="custom" prop="accountCount">
+            <template #default="props">
+              {{ props.row.accountCount }}
+            </template>
+          </el-table-column>
+
+          <!-- 8. 权限身份 -->
+          <el-table-column v-if="typeShow" :label="$t('tabRole')" min-width="100" sortable="custom" prop="type">
             <template #default="props">
               <div class="type">
                 {{ toRoleName(props.row.type) }}
               </div>
             </template>
           </el-table-column>
-          <el-table-column :label="$t('tabSetting')" :width="settingWidth">
+
+          <!-- 9. 状态 -->
+          <el-table-column v-if="statusShow" min-width="70" :label="$t('tabStatus')" sortable="custom" prop="status">
+            <template #default="props">
+              <el-tag disable-transitions size="small" v-if="props.row.isDel === 1" type="info">{{$t('deleted')}}</el-tag>
+              <el-tag disable-transitions size="small" v-else-if="props.row.status === 0" type="primary">{{$t('active')}}</el-tag>
+              <el-tag disable-transitions size="small" v-else-if="props.row.status === 1" type="danger">{{$t('banned')}}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('tabSetting')" min-width="80">
             <template #default="props">
               <el-dropdown trigger="click">
                 <el-button size="small" type="primary">{{$t('action')}}</el-button>
@@ -249,8 +327,7 @@ const { t, locale } = useI18n();
 const roleStore = useRoleStore()
 const userStore = useUserStore()
 const settingStore = useSettingStore()
-const filteredValue = ['normal', 'del']
-const filters = [{text: t('active'), value: 'normal'}, {text: t('deleted'), value: 'del'}]
+
 const preserveExpanded = ref(false)
 const emailWidth = ref(230)
 const expandWidth = ref(40)
@@ -260,6 +337,8 @@ const accountNumShow = ref(true)
 const createTimeShow = ref(true)
 const statusShow = ref(true)
 const typeShow = ref(true)
+const linuxdoShow = ref(true)
+const trustLevelShow = ref(true)
 const receiveWidth = ref(null)
 const phonePageShow = ref(false)
 const layout = ref('prev, pager, next,  sizes, total')
@@ -280,11 +359,13 @@ const addForm = reactive({
 })
 
 const params = reactive({
-  email: '',
+  keyword: '',
   num: 1,
   size: 15,
   timeSort: 0,
-  status: -1
+  status: -1,
+  sortField: '',
+  sortOrder: ''
 })
 let chooseUser = {}
 const userForm = reactive({
@@ -337,77 +418,38 @@ watch(() => userStore.refreshList, () => {
 
 getUserList()
 
-const filterItem = reactive({
-  send: ['normal', 'del'],
-  account: ['normal', 'del'],
-  receive: ['normal', 'del']
-})
 
-function tableFilter(e) {
-
-  if (e.send) filterItem.send = e.send
-  if (e.account) filterItem.account = e.account
-  if (e.receive) filterItem.receive = e.receive
-
-}
-
-function formatterSend(e) {
-
-  if (filterItem.send.length === 2) {
-    return e.sendEmailCount + e.delSendEmailCount
-  }
-
-  if (filterItem.send.includes('normal')) {
-    return e.sendEmailCount
-  }
-
-  if (filterItem.send.includes('del')) {
-    return e.delSendEmailCount
-  }
-
-  return 0
-}
-
-function formatterAccount(e) {
-
-  if (filterItem.account.length === 2) {
-    return e.accountCount + e.delAccountCount
-  }
-
-  if (filterItem.account.includes('normal')) {
-    return e.accountCount
-  }
-
-  if (filterItem.account.includes('del')) {
-    return e.delAccountCount
-  }
-
-  return 0
-}
-
-function formatterReceive(e) {
-
-
-  if (filterItem.receive.length === 2) {
-    return e.receiveEmailCount + e.delReceiveEmailCount
-  }
-
-  if (filterItem.receive.includes('normal')) {
-    return e.receiveEmailCount
-  }
-
-  if (filterItem.receive.includes('del')) {
-    return e.delReceiveEmailCount
-  }
-
-  return 0
-}
 
 function setStatusName(user) {
   if (user.isDel === 1) return t('restore')
   if (user.status === 0) return t('btnBan')
   if (user.status === 1) return t('enable')
 }
+
+function getTrustLevelType(level) {
+  switch (level) {
+    case 0: return 'info'
+    case 1: return 'success'
+    case 2: return 'warning'
+    case 3: return 'danger'
+    case 4: return 'primary'
+    default: return 'info'
+  }
+}
+
+function handleSortChange({ column, prop, order }) {
+  if (order) {
+    params.sortField = prop
+    params.sortOrder = order === 'ascending' ? 'asc' : 'desc'
+  } else {
+    params.sortField = ''
+    params.sortOrder = ''
+  }
+  params.num = 1
+  getUserList()
+}
+
+
 
 const tableRowFormatter = (data) => {
   return data.row.email
@@ -734,6 +776,7 @@ function getUserList(loading = true) {
     delete newParams.status
     newParams.isDel = 1
   }
+
   userList(newParams).then(data => {
     users.value = data.list
     total.value = data.total
@@ -757,6 +800,8 @@ function adjustWidth() {
   accountNumShow.value = width > 650
   sendNumShow.value = width > 685
   typeShow.value = width > 767
+  linuxdoShow.value = width > 1300
+  trustLevelShow.value = width > 1400
   emailWidth.value = width > 480 ? 230 : null
   settingWidth.value = width < 480 ? (locale.value === 'en' ? 85 : 75) : null
   expandWidth.value = width < 480 ? 25 : 40
@@ -778,15 +823,36 @@ function adjustWidth() {
   word-break: break-all;
 }
 
-.el-table-filter__bottom {
-  button:last-child {
-    display: none;
+
+
+.user-emails {
+  margin-bottom: 10px;
+
+  .email-list {
+    margin-top: 5px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+
+    .email-tag {
+      margin: 0;
+    }
   }
 }
 
-.el-table-filter__content {
-  min-width: 0;
+.user-id-row {
+  display: flex;
+  align-items: center;
 }
+
+
+
+.el-dropdown-menu__item.active {
+  color: #409eff;
+  background-color: #ecf5ff;
+}
+
+
 </style>
 <style lang="scss" scoped>
 

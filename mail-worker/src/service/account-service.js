@@ -127,9 +127,10 @@ const accountService = {
 		const user = await userService.selectById(c, userId);
 		const accountRow = await this.selectById(c, accountId);
 
-		if (accountRow.email === user.email) {
-			throw new BizError(t('delMyAccount'));
-		}
+		// 移除主邮箱删除限制，允许用户删除自己的主邮箱
+		// if (accountRow.email === user.email) {
+		// 	throw new BizError(t('delMyAccount'));
+		// }
 
 		if (accountRow.userId !== user.userId) {
 			throw new BizError(t('noUserAccount'));
@@ -202,12 +203,56 @@ const accountService = {
 		await orm(c).update(account).set({isDel: isDel.NORMAL}).where(eq(account.userId, userId)).run();
 	},
 
+	/**
+	 * 更新用户的邮箱地址
+	 * @param {Object} c - Hono context
+	 * @param {number} userId - 用户ID
+	 * @param {string} oldEmail - 旧邮箱
+	 * @param {string} newEmail - 新邮箱
+	 */
+	async updateEmailByUserId(c, userId, oldEmail, newEmail) {
+		await orm(c)
+			.update(account)
+			.set({ email: newEmail })
+			.where(and(
+				eq(account.userId, userId),
+				eq(account.email, oldEmail)
+			))
+			.run();
+	},
+
 	async setName(c, params, userId) {
 		const { name, accountId } = params
 		if (name.length > 30) {
 			throw new BizError(t('usernameLengthLimit'));
 		}
 		await orm(c).update(account).set({name}).where(and(eq(account.userId, userId),eq(account.accountId, accountId))).run();
+	},
+
+	/**
+	 * 根据用户ID列表获取账户信息
+	 * @param {Object} c - Hono context
+	 * @param {Array} userIds - 用户ID数组
+	 * @returns {Array} 账户信息列表
+	 */
+	async selectByUserIds(c, userIds) {
+		if (!userIds || userIds.length === 0) {
+			return [];
+		}
+
+		return await orm(c)
+			.select({
+				accountId: account.accountId,
+				userId: account.userId,
+				email: account.email,
+				name: account.name
+			})
+			.from(account)
+			.where(and(
+				inArray(account.userId, userIds),
+				eq(account.isDel, isDel.NORMAL)
+			))
+			.all();
 	}
 };
 

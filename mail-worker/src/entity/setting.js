@@ -34,6 +34,13 @@ export const setting = sqliteTable('setting', {
 	noticeWidth: integer('notice_width').default(400).notNull(),
 	notice: integer('notice').default(0).notNull(),
 	noRecipient: integer('no_recipient').default(1).notNull(),
-	loginDomain: integer('login_domain').default(0).notNull()
+	loginDomain: integer('login_domain').default(0).notNull(),
+	// LinuxDo 相关设置
+	linuxdoTrustLevel0Enabled: integer('linuxdo_trust_level_0_enabled').default(1).notNull(),
+	linuxdoTrustLevel1Enabled: integer('linuxdo_trust_level_1_enabled').default(1).notNull(),
+	linuxdoTrustLevel2Enabled: integer('linuxdo_trust_level_2_enabled').default(1).notNull(),
+	linuxdoTrustLevel3Enabled: integer('linuxdo_trust_level_3_enabled').default(1).notNull(),
+	linuxdoTrustLevel4Enabled: integer('linuxdo_trust_level_4_enabled').default(1).notNull(),
+	linuxdoMaxUsers: integer('linuxdo_max_users').default(0).notNull() // 0表示无限制
 });
 export default setting

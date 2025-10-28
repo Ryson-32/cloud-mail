@@ -25,7 +25,7 @@
                   <el-dropdown-menu>
                     <el-dropdown-item v-if="hasPerm('email:send')" @click="openSetName(item)">{{ $t('rename') }}
                     </el-dropdown-item>
-                    <el-dropdown-item v-if="item.accountId !== userStore.user.accountId && hasPerm('account:delete')"
+                    <el-dropdown-item v-if="hasPerm('account:delete')"
                                       @click="remove(item)">{{ $t('delete') }}
                     </el-dropdown-item>
                   </el-dropdown-menu>
@@ -246,7 +246,7 @@ function openSetName(accountItem) {
 }
 
 function showNullSetting(item) {
-  return !hasPerm('email:send') && !(item.accountId !== userStore.user.accountId && hasPerm('account:delete'))
+  return !hasPerm('email:send') && !hasPerm('account:delete')
 }
 
 function itemBg(accountId) {

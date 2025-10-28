@@ -18,4 +18,6 @@ import '../api/init-api'
 import '../api/analysis-api'
 import '../api/reg-key-api'
 import '../api/public-api'
+import '../api/oauth-api'
+import '../api/linuxdo-api'
 export default app;

@@ -242,6 +242,75 @@
             </div>
           </div>
 
+          <!-- LinuxDo Settings Card -->
+          <div class="settings-card">
+            <div class="card-title">LinuxDo设置</div>
+            <div class="card-content">
+              <!-- 用户等级统计 -->
+              <div class="setting-item">
+                <div><span>用户等级统计</span></div>
+                <div class="forward">
+                  <span>总用户: {{ linuxdoStats.total || 0 }}</span>
+                  <el-button class="opt-button" size="small" type="primary" @click="refreshLinuxdoStats">
+                    <Icon icon="fluent:arrow-clockwise-24-regular" width="18" height="18"/>
+                  </el-button>
+                </div>
+              </div>
+
+              <!-- 注册权限设置 -->
+              <div class="setting-item">
+                <div><span>等级0用户注册</span></div>
+                <div>
+                  <el-switch @change="updateLinuxdoSettings" :active-value="true" :inactive-value="false"
+                             v-model="linuxdoSettings.trustLevel0Enabled"/>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div><span>等级1用户注册</span></div>
+                <div>
+                  <el-switch @change="updateLinuxdoSettings" :active-value="true" :inactive-value="false"
+                             v-model="linuxdoSettings.trustLevel1Enabled"/>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div><span>等级2用户注册</span></div>
+                <div>
+                  <el-switch @change="updateLinuxdoSettings" :active-value="true" :inactive-value="false"
+                             v-model="linuxdoSettings.trustLevel2Enabled"/>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div><span>等级3用户注册</span></div>
+                <div>
+                  <el-switch @change="updateLinuxdoSettings" :active-value="true" :inactive-value="false"
+                             v-model="linuxdoSettings.trustLevel3Enabled"/>
+                </div>
+              </div>
+              <div class="setting-item">
+                <div><span>等级4用户注册</span></div>
+                <div>
+                  <el-switch @change="updateLinuxdoSettings" :active-value="true" :inactive-value="false"
+                             v-model="linuxdoSettings.trustLevel4Enabled"/>
+                </div>
+              </div>
+
+              <!-- 人数限制设置 -->
+              <div class="setting-item">
+                <div><span>最大用户数限制</span></div>
+                <div>
+                  <el-input-number
+                    v-model="linuxdoSettings.maxUsers"
+                    :min="0"
+                    :max="999999"
+                    :step="1"
+                    @change="updateLinuxdoSettings"
+                    style="width: 120px;"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Turnstile Verification Card -->
           <div class="settings-card">
             <div class="card-title">{{$t('turnstileSetting')}}</div>
@@ -629,6 +698,7 @@ import loading from "@/components/loading/index.vue";
 import {getTextWidth} from "@/utils/text.js";
 import { fileToBase64 } from "@/utils/file-utils.js"
 import { useI18n } from 'vue-i18n';
+import { linuxdoStats as getLinuxdoStats, linuxdoSettings as getLinuxdoSettings, linuxdoUpdateSettings } from '@/request/linuxdo.js';
 
 defineOptions({
   name: 'sys-setting'
@@ -710,7 +780,20 @@ const tokenColumnWidth = ref(0)
 const ruleType = ref(0)
 const ruleEmail = ref([])
 
+// LinuxDo 相关数据
+const linuxdoStats = ref({ total: 0 })
+const linuxdoSettings = ref({
+  trustLevel0Enabled: true,
+  trustLevel1Enabled: true,
+  trustLevel2Enabled: true,
+  trustLevel3Enabled: true,
+  trustLevel4Enabled: true,
+  maxUsers: 0
+})
+
 getSettings()
+getLinuxdoSettingsData()
+refreshLinuxdoStats()
 
 function getSettings() {
   settingQuery().then(settingData => {
@@ -1120,6 +1203,71 @@ function editSetting(settingForm, refreshStatus = true) {
   }).finally(() => {
     settingLoading.value = false
   })
+}
+
+// LinuxDo 相关方法
+async function getLinuxdoSettingsData() {
+  try {
+    const response = await getLinuxdoSettings()
+    console.log('LinuxDo设置API响应:', response)
+    // 检查响应数据
+    const data = response?.data || response
+    if (data && typeof data === 'object' && 'trustLevel0Enabled' in data) {
+      linuxdoSettings.value = data
+    } else {
+      console.warn('LinuxDo设置数据格式无效:', data)
+      linuxdoSettings.value = {
+        trustLevel0Enabled: true,
+        trustLevel1Enabled: true,
+        trustLevel2Enabled: true,
+        trustLevel3Enabled: true,
+        trustLevel4Enabled: true,
+        maxUsers: 0
+      }
+    }
+  } catch (error) {
+    console.error('获取LinuxDo设置失败:', error)
+    // 设置默认值，避免模板错误
+    linuxdoSettings.value = {
+      trustLevel0Enabled: true,
+      trustLevel1Enabled: true,
+      trustLevel2Enabled: true,
+      trustLevel3Enabled: true,
+      trustLevel4Enabled: true,
+      maxUsers: 0
+    }
+  }
+}
+
+async function refreshLinuxdoStats() {
+  try {
+    const response = await getLinuxdoStats()
+    console.log('LinuxDo统计API响应:', response)
+    // 检查响应数据
+    const data = response?.data || response
+    if (data && typeof data === 'object' && 'total' in data) {
+      linuxdoStats.value = data
+    } else {
+      console.warn('LinuxDo统计数据格式无效:', data)
+      linuxdoStats.value = { total: 0 }
+    }
+  } catch (error) {
+    console.error('获取LinuxDo统计失败:', error)
+    // 设置默认值，避免模板错误
+    linuxdoStats.value = { total: 0 }
+  }
+}
+
+async function updateLinuxdoSettings() {
+  if (!linuxdoSettings.value) return
+
+  try {
+    await linuxdoUpdateSettings(linuxdoSettings.value)
+    ElMessage.success('LinuxDo设置更新成功')
+  } catch (error) {
+    console.error('LinuxDo设置更新失败:', error)
+    ElMessage.error('LinuxDo设置更新失败')
+  }
 }
 </script>
 

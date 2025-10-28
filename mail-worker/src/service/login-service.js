@@ -251,6 +251,134 @@ const loginService = {
 		const index = authInfo.tokens.findIndex(item => item === token);
 		authInfo.tokens.splice(index, 1);
 		await c.env.kv.put(KvConst.AUTH_INFO + userId, JSON.stringify(authInfo));
+	},
+
+	/**
+	 * OAuth登录处理
+	 * @param {Object} c - Hono context
+	 * @param {Object} oauthUserInfo - OAuth用户信息
+	 * @returns {string} JWT token
+	 */
+	async oauthLogin(c, oauthUserInfo) {
+		const { id: oauthId, username, email, name, trust_level } = oauthUserInfo;
+
+		if (!oauthId || !username) {
+			throw new BizError(t('oauthUserInfoIncomplete'));
+		}
+
+		// 构造邮箱地址，如果OAuth没有提供邮箱，使用linuxdo_用户ID@域名格式
+		const userEmail = email || `linuxdo_${oauthId}@${c.env.domain[0]}`;
+
+		// 检查是否已存在OAuth用户
+		let userRow = await userService.selectByOAuthId(c, 'linux_do', oauthId);
+
+		if (!userRow) {
+			// 检查LinuxDo用户注册权限
+			const linuxdoService = (await import('./linuxdo-service.js')).default;
+			const canRegister = await linuxdoService.checkRegisterPermission(c, trust_level || 0);
+
+			if (!canRegister) {
+				throw new BizError(t('linuxdoRegisterNotAllowed'));
+			}
+
+			// 检查是否存在相同邮箱的用户
+			userRow = await userService.selectByEmailIncludeDel(c, userEmail);
+
+			if (userRow) {
+				// 如果存在相同邮箱的用户，处理不同状态
+				if (userRow.isDel === isDel.DELETE) {
+					// 对于已删除的用户，重新激活账户
+					await userService.reactivateUser(c, userRow.userId);
+					// 关联OAuth信息
+					await userService.linkOAuth(c, userRow.userId, 'linux_do', oauthId, username, trust_level, userInfo.avatar_template);
+					// 重新查询用户信息
+					userRow = await userService.selectById(c, userRow.userId);
+				} else {
+					if (userRow.status === userConst.status.BAN) {
+						throw new BizError(t('isBanUser'));
+					}
+
+					// 关联OAuth信息到现有用户
+					await userService.linkOAuth(c, userRow.userId, 'linux_do', oauthId, username, trust_level, userInfo.avatar_template);
+				}
+			} else {
+				// 创建新用户
+				const roleRow = await roleService.selectDefaultRole(c);
+				const defaultRoleId = roleRow.roleId;
+
+				// 生成随机密码（OAuth用户不需要密码登录）
+				const randomPassword = crypto.getRandomValues(new Uint8Array(32))
+					.reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '');
+				const { salt, hash } = await saltHashUtils.hashPassword(randomPassword);
+
+				// 创建用户
+				const userId = await userService.insertOAuthUser(c, {
+					email: userEmail,
+					password: hash,
+					salt,
+					type: defaultRoleId,
+					oauthProvider: 'linux_do',
+					oauthId: oauthId,
+					oauthUsername: username,
+					avatarTemplate: oauthUserInfo.avatar_template,
+					trustLevel: trust_level
+				});
+
+				// 创建账户
+				await accountService.insert(c, {
+					userId: userId,
+					email: userEmail,
+					name: name || username
+				});
+
+				await userService.updateUserInfo(c, userId, true);
+
+				userRow = await userService.selectById(c, userId);
+			}
+		} else {
+			// 检查用户状态
+			if (userRow.isDel === isDel.DELETE) {
+				throw new BizError(t('isDelUser'));
+			}
+
+			if (userRow.status === userConst.status.BAN) {
+				throw new BizError(t('isBanUser'));
+			}
+
+			// 检查并更新邮箱格式（为现有OAuth用户迁移到新格式）
+			if (userRow.email !== userEmail) {
+				await userService.updateUserEmail(c, userRow.userId, userEmail);
+				// 同时更新账户表中的邮箱
+				await accountService.updateEmailByUserId(c, userRow.userId, userRow.email, userEmail);
+				// 重新查询用户信息
+				userRow = await userService.selectById(c, userRow.userId);
+			}
+		}
+
+		// 生成JWT token
+		const uuid = uuidv4();
+		const jwt = await JwtUtils.generateToken(c, { userId: userRow.userId, token: uuid });
+
+		let authInfo = await c.env.kv.get(KvConst.AUTH_INFO + userRow.userId, { type: 'json' });
+
+		if (authInfo) {
+			if (authInfo.tokens.length > 10) {
+				authInfo.tokens.shift();
+			}
+			authInfo.tokens.push(uuid);
+		} else {
+			authInfo = {
+				tokens: [],
+				user: userRow,
+				refreshTime: dayjs().toISOString()
+			};
+			authInfo.tokens.push(uuid);
+		}
+
+		await userService.updateUserInfo(c, userRow.userId);
+		await c.env.kv.put(KvConst.AUTH_INFO + userRow.userId, JSON.stringify(authInfo), { expirationTtl: constant.TOKEN_EXPIRE });
+
+		return jwt;
 	}
 
 };

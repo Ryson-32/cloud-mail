@@ -21,12 +21,90 @@ const init = {
 		await this.v1_5DB(c);
 		await this.v1_6DB(c);
 		await this.v1_7DB(c);
+		await this.v1_8DB(c);
+		await this.v1_9DB(c);
+		await this.v1_10DB(c);
+		await this.v1_11DB(c);
 		await settingService.refresh(c);
 		return c.text(t('initSuccess'));
 	},
 
 	async v1_7DB(c) {
-		 await c.env.db.prepare(`ALTER TABLE setting ADD COLUMN login_domain INTEGER NOT NULL DEFAULT 0;`).run();
+		try {
+			await c.env.db.prepare(`ALTER TABLE setting ADD COLUMN login_domain INTEGER NOT NULL DEFAULT 0;`).run();
+		} catch (e) {
+			console.warn(`跳过字段添加，原因：${e.message}`);
+		}
+	},
+
+	async v1_8DB(c) {
+		// 添加OAuth相关字段到用户表
+		const ADD_COLUMN_SQL_LIST = [
+			`ALTER TABLE user ADD COLUMN oauth_provider TEXT;`,
+			`ALTER TABLE user ADD COLUMN oauth_id TEXT;`,
+			`ALTER TABLE user ADD COLUMN oauth_username TEXT;`
+		];
+
+		const promises = ADD_COLUMN_SQL_LIST.map(async (sql) => {
+			try {
+				await c.env.db.prepare(sql).run();
+			} catch (e) {
+				console.warn(`跳过字段添加，原因：${e.message}`);
+			}
+		});
+
+		await Promise.all(promises);
+
+		// 创建OAuth相关索引
+		try {
+			await c.env.db.prepare(`
+				CREATE INDEX IF NOT EXISTS idx_user_oauth ON user(oauth_provider, oauth_id)
+			`).run();
+		} catch (e) {
+			console.warn(`跳过创建索引，原因：${e.message}`);
+		}
+	},
+
+	async v1_9DB(c) {
+		// 添加trust_level字段到用户表
+		try {
+			await c.env.db.prepare(`ALTER TABLE user ADD COLUMN trust_level INTEGER DEFAULT 0;`).run();
+		} catch (e) {
+			console.warn(`跳过添加trust_level字段，原因：${e.message}`);
+		}
+
+		// 添加LinuxDo设置字段到设置表
+		const LINUXDO_SETTING_COLUMNS = [
+			`ALTER TABLE setting ADD COLUMN linuxdo_trust_level_0_enabled INTEGER NOT NULL DEFAULT 1;`,
+			`ALTER TABLE setting ADD COLUMN linuxdo_trust_level_1_enabled INTEGER NOT NULL DEFAULT 1;`,
+			`ALTER TABLE setting ADD COLUMN linuxdo_trust_level_2_enabled INTEGER NOT NULL DEFAULT 1;`,
+			`ALTER TABLE setting ADD COLUMN linuxdo_trust_level_3_enabled INTEGER NOT NULL DEFAULT 1;`,
+			`ALTER TABLE setting ADD COLUMN linuxdo_trust_level_4_enabled INTEGER NOT NULL DEFAULT 1;`,
+			`ALTER TABLE setting ADD COLUMN linuxdo_max_users INTEGER NOT NULL DEFAULT 0;`
+		];
+
+		const promises = LINUXDO_SETTING_COLUMNS.map(async (sql) => {
+			try {
+				await c.env.db.prepare(sql).run();
+			} catch (e) {
+				console.warn(`跳过LinuxDo设置字段添加，原因：${e.message}`);
+			}
+		});
+
+		await Promise.all(promises);
+	},
+
+	async v1_10DB(c) {
+		// 添加LinuxDo权限
+		try {
+			await c.env.db.prepare(`
+        INSERT INTO perm (perm_id, name, perm_key, pid, type, sort) VALUES
+        (37,'LinuxDo设置', NULL, 17, 1, 3),
+        (38,'LinuxDo查看', 'linuxdo:query', 37, 2, 0),
+        (39,'LinuxDo设置', 'linuxdo:set', 37, 2, 1)`).run();
+		} catch (e) {
+			console.warn(`跳过LinuxDo权限数据，原因：${e.message}`);
+		}
 	},
 
 	async v1_6DB(c) {
@@ -513,6 +591,15 @@ const init = {
 		})
 
 		await c.env.db.batch(queryList);
+	},
+
+	async v1_11DB(c) {
+		// 添加avatar_template字段到用户表
+		try {
+			await c.env.db.prepare(`ALTER TABLE user ADD COLUMN avatar_template TEXT;`).run();
+		} catch (e) {
+			console.warn(`跳过添加avatar_template字段，原因：${e.message}`);
+		}
 	}
 };
 export default init;

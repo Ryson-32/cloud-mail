@@ -97,7 +97,17 @@ const en = {
 		"设置修改": "Change Settings",
 		"物理清空": "Physical Purge",
 		"发件重置": "Reset Send Count"
-	}
+	},
+	// OAuth related
+	oauthTokenFailed: 'OAuth token acquisition failed',
+	oauthUserInfoFailed: 'OAuth user info acquisition failed',
+	oauthUserInfoIncomplete: 'OAuth user info incomplete',
+	redirectUriRequired: 'Redirect URI cannot be empty',
+	oauthAuthorizeFailed: 'OAuth authorization failed',
+	oauthCallbackParamsMissing: 'OAuth callback parameters missing',
+	oauthStateInvalid: 'OAuth state validation failed',
+	oauthCallbackFailed: 'OAuth callback processing failed',
+	linuxdoRegisterNotAllowed: 'Your LinuxDo trust level is not allowed to register, or registration limit reached'
 };
 
 export default en;

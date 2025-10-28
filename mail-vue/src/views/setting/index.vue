@@ -20,8 +20,8 @@
         </div>
       </div>
       <div class="item">
-        <div>{{$t('emailAccount')}}</div>
-        <div>{{ userStore.user.email }}</div>
+        <div>ID</div>
+        <div>{{ getDisplayId() }}</div>
       </div>
       <div class="item">
         <div>{{$t('password')}}</div>
@@ -67,6 +67,15 @@ const accountName = ref(null)
 defineOptions({
   name: 'setting'
 })
+
+// 获取显示的ID（优先LinuxDo ID，否则用户ID）
+function getDisplayId() {
+  const user = userStore.user;
+  if (user.oauthProvider === 'linux_do' && user.oauthId) {
+    return parseInt(user.oauthId);
+  }
+  return user.userId;
+}
 
 function showSetName() {
   accountName.value = userStore.user.name

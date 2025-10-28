@@ -126,6 +126,15 @@ const settingService = {
 	async websiteConfig(c) {
 
 		const settingRow = await this.get(c)
+		
+		// 从环境变量读取大学链接配置（可选）
+		let universityLink = null;
+		if (c.env.UNIVERSITY_URL && c.env.UNIVERSITY_NAME) {
+			universityLink = {
+				url: c.env.UNIVERSITY_URL,
+				name: c.env.UNIVERSITY_NAME
+			};
+		}
 
 		return {
 			register: settingRow.register,
@@ -152,7 +161,16 @@ const settingService = {
 			noticeWidth: settingRow.noticeWidth,
 			noticeOffset: settingRow.noticeOffset,
 			notice: settingRow.notice,
-			loginDomain: settingRow.loginDomain
+			loginDomain: settingRow.loginDomain,
+			// LinuxDo 设置
+			linuxdoTrustLevel0Enabled: settingRow.linuxdoTrustLevel0Enabled,
+			linuxdoTrustLevel1Enabled: settingRow.linuxdoTrustLevel1Enabled,
+			linuxdoTrustLevel2Enabled: settingRow.linuxdoTrustLevel2Enabled,
+			linuxdoTrustLevel3Enabled: settingRow.linuxdoTrustLevel3Enabled,
+			linuxdoTrustLevel4Enabled: settingRow.linuxdoTrustLevel4Enabled,
+			linuxdoMaxUsers: settingRow.linuxdoMaxUsers,
+			// 大学链接配置（从环境变量读取）
+			universityLink: universityLink
 		};
 	}
 };

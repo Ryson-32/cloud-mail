@@ -97,7 +97,17 @@ const zh = {
 		"设置修改": "设置修改",
 		"物理清空": "物理清空",
 		'发件重置': '发件重置'
-	}
+	},
+	// OAuth相关
+	oauthTokenFailed: 'OAuth令牌获取失败',
+	oauthUserInfoFailed: 'OAuth用户信息获取失败',
+	oauthUserInfoIncomplete: 'OAuth用户信息不完整',
+	redirectUriRequired: '回调地址不能为空',
+	oauthAuthorizeFailed: 'OAuth授权失败',
+	oauthCallbackParamsMissing: 'OAuth回调参数缺失',
+	oauthStateInvalid: 'OAuth状态验证失败',
+	oauthCallbackFailed: 'OAuth回调处理失败',
+	linuxdoRegisterNotAllowed: '您的LinuxDo等级暂时无法注册，或注册人数已达上限'
 }
 
 export default zh

@@ -15,7 +15,8 @@ const exclude = [
 	'/setting/websiteConfig',
 	'/webhooks',
 	'/init',
-	'/public/genToken'
+	'/public/genToken',
+	'/oauth'
 ];
 
 const requirePerms = [
@@ -48,7 +49,9 @@ const requirePerms = [
 	'/regKey/list',
 	'/regKey/delete',
 	'/regKey/clearNotUse',
-	'/regKey/history'
+	'/regKey/history',
+	'/linuxdo/stats',
+	'/linuxdo/settings'
 ];
 
 const premKey = {
@@ -78,6 +81,8 @@ const premKey = {
 	'reg-key:add': ['/regKey/add'],
 	'reg-key:query': ['/regKey/list','/regKey/history'],
 	'reg-key:delete': ['/regKey/delete','/regKey/clearNotUse'],
+	'linuxdo:query': ['/linuxdo/stats', '/linuxdo/settings'],
+	'linuxdo:set': ['/linuxdo/settings']
 };
 
 app.use('*', async (c, next) => {
