@@ -28,6 +28,7 @@ function getSortColumn(sortField) {
 		'createTime': user.createTime,
 		'status': user.status,
 		'type': user.type,
+		'userNumber': user.userNumber,
 		// 注意：receiveEmailCount, sendEmailCount, accountCount 需要在查询后排序
 	};
 	return sortMap[sortField];
@@ -88,7 +89,18 @@ const userService = {
 	},
 
 	async insert(c, params) {
-		const { userId } = await orm(c).insert(user).values({ ...params }).returning().get();
+		// 获取当前最大用户序号
+		const maxNumberResult = await orm(c)
+			.select({ maxNumber: sql`MAX(${user.userNumber})` })
+			.from(user)
+			.get();
+		const nextNumber = (maxNumberResult?.maxNumber || 0) + 1;
+		
+		// 插入用户时包含序号
+		const { userId } = await orm(c).insert(user)
+			.values({ ...params, userNumber: nextNumber })
+			.returning()
+			.get();
 		return userId;
 	},
 
@@ -197,10 +209,21 @@ const userService = {
 		if (sortField && sortOrder) {
 			const sortColumn = getSortColumn(sortField);
 			if (sortColumn) {
-				if (sortOrder === 'asc') {
-					query.orderBy(asc(sortColumn));
+				// 特殊处理 userNumber 字段，确保 NULL 值在最后
+				if (sortField === 'userNumber') {
+					if (sortOrder === 'asc') {
+						// 升序：NULL 值在最后
+						query.orderBy(sql`CASE WHEN ${user.userNumber} IS NULL THEN 999999 ELSE ${user.userNumber} END ASC`);
+					} else {
+						// 降序：NULL 值在最后
+						query.orderBy(sql`CASE WHEN ${user.userNumber} IS NULL THEN -1 ELSE ${user.userNumber} END DESC`);
+					}
 				} else {
-					query.orderBy(desc(sortColumn));
+					if (sortOrder === 'asc') {
+						query.orderBy(asc(sortColumn));
+					} else {
+						query.orderBy(desc(sortColumn));
+					}
 				}
 			} else {
 				// 对于计算字段，暂时使用默认排序，在获取数据后再排序
@@ -551,7 +574,18 @@ const userService = {
 	 * @returns {number} 用户ID
 	 */
 	async insertOAuthUser(c, params) {
-		const { userId } = await orm(c).insert(user).values({ ...params }).returning().get();
+		// 获取当前最大用户序号
+		const maxNumberResult = await orm(c)
+			.select({ maxNumber: sql`MAX(${user.userNumber})` })
+			.from(user)
+			.get();
+		const nextNumber = (maxNumberResult?.maxNumber || 0) + 1;
+		
+		// 插入用户时包含序号
+		const { userId } = await orm(c).insert(user)
+			.values({ ...params, userNumber: nextNumber })
+			.returning()
+			.get();
 		return userId;
 	},
 

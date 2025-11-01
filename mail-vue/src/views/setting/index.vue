@@ -68,13 +68,14 @@ defineOptions({
   name: 'setting'
 })
 
-// 获取显示的ID（优先LinuxDo ID，否则用户ID）
+// 获取显示的ID（LinuxDo用户显示LinuxDo ID，其他用户显示用户序号）
 function getDisplayId() {
   const user = userStore.user;
   if (user.oauthProvider === 'linux_do' && user.oauthId) {
     return parseInt(user.oauthId);
   }
-  return user.userId;
+  // 显示用户序号，如果没有则显示用户ID
+  return user.userNumber || user.userId;
 }
 
 function showSetName() {

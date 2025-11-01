@@ -86,6 +86,10 @@
                 <div><span class="details-item-title">{{$t('loginDevice')}}:</span>{{ props.row.device || $t('unknown') }}</div>
                 <div><span class="details-item-title">{{$t('loginSystem')}}:</span>{{ props.row.os || $t('unknown') }}</div>
                 <div><span class="details-item-title">{{$t('browserLogin')}}:</span>{{ props.row.browser || $t('unknown') }}</div>
+                <!-- 用户编号信息 -->
+                <div>
+                  <span class="details-item-title">用户编号:</span>{{ props.row.userNumber || props.row.userId }}
+                </div>
                 <!-- LinuxDo信息 -->
                 <div v-if="props.row.oauthProvider === 'linux_do'">
                   <span class="details-item-title">LinuxDo ID:</span>{{ props.row.oauthId || $t('unknown') }}
@@ -111,17 +115,17 @@
               </div>
             </template>
           </el-table-column>
-          <!-- 1. LinuxDo ID -->
-          <el-table-column show-overflow-tooltip label="LinuxDo ID" min-width="100" sortable="custom" prop="oauthId">
+          <!-- 1. 用户编号 -->
+          <el-table-column show-overflow-tooltip label="用户编号" min-width="100" sortable="custom" prop="userNumber">
             <template #default="props">
               <div class="user-id-row">
-                <el-tag v-if="props.row.oauthProvider === 'linux_do' && props.row.oauthId"
-                        type="primary" size="small">
-                  {{ parseInt(props.row.oauthId) }}
+                <el-tag type="primary" size="small">
+                  {{ props.row.userNumber || props.row.userId }}
                 </el-tag>
-                <el-tag v-else type="info" size="small">
-                  {{ props.row.userId }}
-                </el-tag>
+                <span v-if="props.row.oauthProvider === 'linux_do' && props.row.oauthId" 
+                      class="oauth-badge">
+                  <el-tag type="success" size="small">LinuxDo: {{ parseInt(props.row.oauthId) }}</el-tag>
+                </span>
               </div>
             </template>
           </el-table-column>
@@ -842,6 +846,12 @@ function adjustWidth() {
 
 .user-id-row {
   display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.oauth-badge {
+  display: inline-flex;
   align-items: center;
 }
 

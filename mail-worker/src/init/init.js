@@ -25,6 +25,7 @@ const init = {
 		await this.v1_9DB(c);
 		await this.v1_10DB(c);
 		await this.v1_11DB(c);
+		await this.v1_12DB(c);
 		await settingService.refresh(c);
 		return c.text(t('initSuccess'));
 	},
@@ -599,6 +600,44 @@ const init = {
 			await c.env.db.prepare(`ALTER TABLE user ADD COLUMN avatar_template TEXT;`).run();
 		} catch (e) {
 			console.warn(`跳过添加avatar_template字段，原因：${e.message}`);
+		}
+	},
+	
+	async v1_12DB(c) {
+		// 添加用户序号字段
+		try {
+			await c.env.db.prepare(`ALTER TABLE user ADD COLUMN user_number INTEGER;`).run();
+		} catch (e) {
+			console.warn(`跳过添加user_number字段，原因：${e.message}`);
+		}
+		
+		// 为现有用户生成序号
+		try {
+			// 获取所有用户并按创建时间排序
+			const users = await c.env.db.prepare(
+				`SELECT user_id FROM user WHERE is_del = 0 ORDER BY create_time ASC, user_id ASC`
+			).all();
+			
+			// 批量更新用户序号
+			const updatePromises = users.results.map((user, index) => {
+				return c.env.db.prepare(
+					`UPDATE user SET user_number = ? WHERE user_id = ?`
+				).bind(index + 1, user.user_id).run();
+			});
+			
+			await Promise.all(updatePromises);
+			console.log(`已为 ${users.results.length} 个用户分配序号`);
+		} catch (e) {
+			console.warn(`跳过用户序号分配，原因：${e.message}`);
+		}
+		
+		// 创建序号索引
+		try {
+			await c.env.db.prepare(
+				`CREATE INDEX IF NOT EXISTS idx_user_number ON user(user_number)`
+			).run();
+		} catch (e) {
+			console.warn(`跳过创建序号索引，原因：${e.message}`);
 		}
 	}
 };
