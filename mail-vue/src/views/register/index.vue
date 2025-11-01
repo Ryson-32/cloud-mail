@@ -1,5 +1,5 @@
 <template>
-  <div id="login-box">
+  <div id="register-box">
     <div id="background-wrap" v-if="!settingStore.settings.background">
       <div class="x1 cloud"></div>
       <div class="x2 cloud"></div>
@@ -12,53 +12,11 @@
       <div class="container">
         <span class="form-title">{{ settingStore.settings.title }}</span>
         <div>
-          <el-input :class="settingStore.settings.loginDomain === 0 ? 'email-input' : ''" v-model="form.email"
-                    type="text" placeholder="Email" autocomplete="off">
-            <template #append v-if="settingStore.settings.loginDomain === 0">
-              <div @click.stop="openSelect">
-                <el-select
-                    v-if="show === 'login'"
-                    ref="mySelect"
-                    v-model="suffix"
-                    :placeholder="$t('select')"
-                    class="select"
-                >
-                  <el-option
-                      v-for="item in domainList"
-                      :key="item"
-                      :label="item"
-                      :value="item"
-                  />
-                </el-select>
-                <div style="color: #333">
-                  <span>{{ suffix }}</span>
-                  <Icon class="setting-icon" icon="mingcute:down-small-fill" width="20" height="20"/>
-                </div>
-              </div>
-            </template>
-          </el-input>
-          <el-input v-model="form.password" placeholder="Password" type="password" autocomplete="off">
-          </el-input>
-          <el-button class="btn" type="primary" @click="submit" :loading="loginLoading"
-          >Sign In
-          </el-button>
-
-          <button class="custom-oauth-btn" @click="loginWithLinuxDo" :disabled="oauthLoading">
-            <div v-if="oauthLoading" class="loading-spinner"></div>
-            <template v-else>
-              <Icon icon="simple-icons:discourse" width="16" height="16"/>
-              <span>Sign in with Linux.do</span>
-            </template>
-          </button>
-        </div>
-        <!-- 注册功能已移至 /register 页面 -->
-        <div v-show="false">
           <el-input class="email-input" v-model="registerForm.email" type="text" :placeholder="$t('emailAccount')"
                     autocomplete="off">
             <template #append>
               <div @click.stop="openSelect">
                 <el-select
-                    v-if="show !== 'login'"
                     ref="mySelect"
                     v-model="suffix"
                     :placeholder="$t('select')"
@@ -99,6 +57,7 @@
           >{{ $t('regBtn') }}
           </el-button>
         </div>
+        <div class="switch" @click="goToLogin">{{ $t('hasAccount') }} <span>{{ $t('loginSwitch') }}</span></div>
       </div>
     </div>
   </div>
@@ -106,49 +65,59 @@
 
 <script setup>
 import router from "@/router";
-import {computed, nextTick, reactive, ref} from "vue";
-import {login} from "@/request/login.js";
+import {computed, nextTick, reactive, ref, onMounted} from "vue";
 import {register} from "@/request/login.js";
 import {isEmail} from "@/utils/verify-utils.js";
 import {useSettingStore} from "@/store/setting.js";
-import {useAccountStore} from "@/store/account.js";
-import {useUserStore} from "@/store/user.js";
 import {useUiStore} from "@/store/ui.js";
 import {Icon} from "@iconify/vue";
 import {cvtR2Url} from "@/utils/convert.js";
-import {loginUserInfo} from "@/request/my.js";
-import {permsToRouter} from "@/perm/perm.js";
 import {useI18n} from "vue-i18n";
+import {websiteConfig} from "@/request/setting.js";
 
 const {t} = useI18n();
-const accountStore = useAccountStore();
-const userStore = useUserStore();
 const uiStore = useUiStore();
 const settingStore = useSettingStore();
-const loginLoading = ref(false)
-const oauthLoading = ref(false)
-// const show = ref('login') // 不再需要切换
-const form = reactive({
-  email: '',
-  password: '',
-
-});
-const mySelect = ref()
-const suffix = ref('')
+const registerLoading = ref(false);
+const mySelect = ref();
+const suffix = ref('');
 const registerForm = reactive({
   email: '',
   password: '',
   confirmPassword: '',
   code: null
-})
-const domainList = settingStore.domainList;
-const registerLoading = ref(false)
-suffix.value = domainList[0]
-const verifyShow = ref(false)
-let verifyToken = ''
-let turnstileId = null
-let botJsError = ref(false)
-let verifyErrorCount = 0
+});
+const domainList = ref([]);
+const verifyShow = ref(false);
+let verifyToken = '';
+let turnstileId = null;
+let botJsError = ref(false);
+let verifyErrorCount = 0;
+
+// 初始化设置
+onMounted(async () => {
+  try {
+    const settings = await websiteConfig();
+    settingStore.settings = settings;
+    settingStore.domainList = settings.domainList;
+    domainList.value = settings.domainList;
+    suffix.value = settings.domainList[0];
+    
+    // 检查注册功能是否开启
+    if (settings.register !== 0) {
+      ElMessage({
+        message: t('regDisabled'),
+        type: 'error',
+        plain: true,
+      });
+      router.push('/login');
+      return;
+    }
+  } catch (error) {
+    console.error('Failed to load settings:', error);
+    // 静默处理错误，避免重复提示
+  }
+});
 
 window.onTurnstileSuccess = (token) => {
   verifyToken = token;
@@ -156,138 +125,62 @@ window.onTurnstileSuccess = (token) => {
 
 window.onTurnstileError = (e) => {
   if (verifyErrorCount >= 4) {
-    return
+    return;
   }
-  verifyErrorCount++
-  console.warn('人机验加载失败', e)
+  verifyErrorCount++;
+  console.warn('人机验证加载失败', e);
   setTimeout(() => {
     nextTick(() => {
       if (!turnstileId) {
-        turnstileId = window.turnstile.render('.register-turnstile')
+        turnstileId = window.turnstile.render('.register-turnstile');
       } else {
         window.turnstile.reset(turnstileId);
       }
-    })
-  }, 1500)
+    });
+  }, 1500);
 };
 
-
+window.loadBefore = () => {
+  nextTick(() => {
+    if (verifyShow.value) {
+      if (!turnstileId) {
+        turnstileId = window.turnstile.render('.register-turnstile');
+      } else {
+        window.turnstile.reset(turnstileId);
+      }
+    }
+  });
+};
 
 const loginOpacity = computed(() => {
-  return `rgba(255, 255, 255, ${settingStore.settings.loginOpacity})`
-})
+  return `rgba(255, 255, 255, ${settingStore.settings.loginOpacity})`;
+});
 
 const background = computed(() => {
-
   return settingStore.settings.background ? {
     'background-image': `url(${cvtR2Url(settingStore.settings.background)})`,
     'background-repeat': 'no-repeat',
     'background-size': 'cover',
     'background-position': 'center'
-  } : ''
-})
-
+  } : '';
+});
 
 const openSelect = () => {
-  mySelect.value.toggleMenu()
+  mySelect.value.toggleMenu();
+};
+
+function goToLogin() {
+  router.push('/login');
 }
-
-const submit = () => {
-
-  if (!form.email) {
-    ElMessage({
-      message: t('emptyEmailMsg'),
-      type: 'error',
-      plain: true,
-    })
-    return
-  }
-
-  let email = form.email + (settingStore.settings.loginDomain === 0 ? suffix.value : '');
-
-  if (!isEmail(email)) {
-    ElMessage({
-      message: t('notEmailMsg'),
-      type: 'error',
-      plain: true,
-    })
-    return
-  }
-
-  if (!form.password) {
-    ElMessage({
-      message: t('emptyPwdMsg'),
-      type: 'error',
-      plain: true,
-    })
-    return
-  }
-
-  loginLoading.value = true
-  login(email, form.password).then(async data => {
-    localStorage.setItem('token', data.token)
-    const user = await loginUserInfo();
-    accountStore.currentAccountId = user.accountId;
-    userStore.user = user;
-    const routers = permsToRouter(user.permKeys);
-    routers.forEach(routerData => {
-      router.addRoute('layout', routerData);
-    });
-    await router.replace({name: 'layout'})
-    uiStore.showNotice()
-  }).finally(() => {
-    loginLoading.value = false
-  })
-}
-
-const loginWithLinuxDo = async () => {
-  oauthLoading.value = true
-  try {
-    // 获取OAuth授权URL
-    const redirectUri = `${window.location.origin}/oauth/callback`
-    const response = await fetch('/api/oauth/authorize-url', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ redirectUri })
-    })
-
-    const result = await response.json()
-    if (result.code === 200) {
-      // 保存回调地址到localStorage
-      localStorage.setItem('oauth_redirect_uri', redirectUri)
-      // 重定向到Linux.do授权页面
-      window.location.href = result.data.authUrl
-    } else {
-      ElMessage({
-        message: result.message || 'OAuth授权失败',
-        type: 'error',
-        plain: true,
-      })
-    }
-  } catch (error) {
-    console.error('OAuth login error:', error)
-    ElMessage({
-      message: 'OAuth登录失败，请稍后重试',
-      type: 'error',
-      plain: true,
-    })
-  } finally {
-    oauthLoading.value = false
-  }
-}
-
 
 function submitRegister() {
-
   if (!registerForm.email) {
     ElMessage({
       message: t('emptyEmailMsg'),
       type: 'error',
       plain: true,
-    })
-    return
+    });
+    return;
   }
 
   if (!isEmail(registerForm.email + suffix.value)) {
@@ -295,8 +188,8 @@ function submitRegister() {
       message: t('notEmailMsg'),
       type: 'error',
       plain: true,
-    })
-    return
+    });
+    return;
   }
 
   if (!registerForm.password) {
@@ -304,8 +197,8 @@ function submitRegister() {
       message: t('emptyPwdMsg'),
       type: 'error',
       plain: true,
-    })
-    return
+    });
+    return;
   }
 
   if (registerForm.password.length < 6) {
@@ -313,105 +206,100 @@ function submitRegister() {
       message: t('pwdLengthMsg'),
       type: 'error',
       plain: true,
-    })
-    return
+    });
+    return;
   }
 
   if (registerForm.password !== registerForm.confirmPassword) {
-
     ElMessage({
       message: t('confirmPwdFailMsg'),
       type: 'error',
       plain: true,
-    })
-    return
+    });
+    return;
   }
 
   if (settingStore.settings.regKey === 0) {
-
     if (!registerForm.code) {
-
       ElMessage({
         message: t('emptyRegKeyMsg'),
         type: 'error',
         plain: true,
-      })
-      return
+      });
+      return;
     }
-
   }
 
   if (!verifyToken && (settingStore.settings.registerVerify === 0 || (settingStore.settings.registerVerify === 2 && settingStore.settings.regVerifyOpen))) {
     if (!verifyShow.value) {
-      verifyShow.value = true
+      verifyShow.value = true;
       nextTick(() => {
         if (!turnstileId) {
           try {
-            turnstileId = window.turnstile.render('.register-turnstile')
+            turnstileId = window.turnstile.render('.register-turnstile');
           } catch (e) {
-            botJsError.value = true
-            console.log('人机验证js加载失败')
+            botJsError.value = true;
+            console.log('人机验证js加载失败');
           }
         } else {
-          window.turnstile.reset('.register-turnstile')
+          window.turnstile.reset('.register-turnstile');
         }
-      })
+      });
     } else if (!botJsError.value) {
       ElMessage({
         message: t('botVerifyMsg'),
         type: "error",
         plain: true
-      })
+      });
     }
     return;
   }
 
-  registerLoading.value = true
+  registerLoading.value = true;
 
   const form = {
     email: registerForm.email + suffix.value,
     password: registerForm.password,
     token: verifyToken,
     code: registerForm.code
-  }
+  };
 
   register(form).then(({regVerifyOpen}) => {
-    show.value = 'login'
-    registerForm.email = ''
-    registerForm.password = ''
-    registerForm.confirmPassword = ''
-    registerForm.code = ''
-    registerLoading.value = false
-    verifyToken = ''
-    settingStore.settings.regVerifyOpen = regVerifyOpen
-    verifyShow.value = false
+    registerForm.email = '';
+    registerForm.password = '';
+    registerForm.confirmPassword = '';
+    registerForm.code = '';
+    registerLoading.value = false;
+    verifyToken = '';
+    settingStore.settings.regVerifyOpen = regVerifyOpen;
+    verifyShow.value = false;
     ElMessage({
       message: t('regSuccessMsg'),
       type: 'success',
       plain: true,
-    })
+    });
+    // 跳转到登录页面
+    setTimeout(() => {
+      router.push('/login');
+    }, 1500);
   }).catch(res => {
-
-    registerLoading.value = false
+    registerLoading.value = false;
 
     if (res.code === 400) {
-      verifyToken = ''
-      settingStore.settings.regVerifyOpen = true
+      verifyToken = '';
+      settingStore.settings.regVerifyOpen = true;
       if (turnstileId) {
-        window.turnstile.reset(turnstileId)
+        window.turnstile.reset(turnstileId);
       } else {
         nextTick(() => {
-          turnstileId = window.turnstile.render('.register-turnstile')
-        })
+          turnstileId = window.turnstile.render('.register-turnstile');
+        });
       }
-      verifyShow.value = true
-
+      verifyShow.value = true;
     }
   });
 }
-
 </script>
-
 
 <style>
 .el-select-dropdown__item {
@@ -426,7 +314,6 @@ function submitRegister() {
 </style>
 
 <style lang="scss" scoped>
-
 .form-wrapper {
   position: fixed;
   top: 0;
@@ -494,6 +381,9 @@ function submitRegister() {
   .switch {
     margin-top: 20px;
     text-align: center;
+    font-size: 14px;
+    color: #909399;
+    cursor: pointer;
 
     span {
       color: #006be6;
@@ -558,8 +448,7 @@ function submitRegister() {
   width: 180px;
 }
 
-
-#login-box {
+#register-box {
   background: linear-gradient(to bottom, #2980b9, #6dd5fa, #fff);
   color: #333;
   font: 100% Arial, sans-serif;
@@ -570,7 +459,6 @@ function submitRegister() {
   display: grid;
   grid-template-columns: 1fr;
 }
-
 
 #background-wrap {
   height: 100%;
@@ -644,76 +532,4 @@ function submitRegister() {
   right: 50px;
   top: -90px;
 }
-
-.oauth-divider {
-  margin: 20px 0;
-  text-align: center;
-  position: relative;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: #e4e7ed;
-  }
-
-  span {
-    background: v-bind(loginOpacity);
-    padding: 0 15px;
-    color: #909399;
-    font-size: 14px;
-  }
-}
-
-.custom-oauth-btn {
-  width: 100%;
-  height: 40px;
-  background: #24292e;
-  border: 1px solid #24292e;
-  border-radius: 4px;
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: all 0.3s;
-  outline: none;
-  margin-top: 12px;
-
-  &:hover:not(:disabled) {
-    background: #1a1e22;
-    border-color: #1a1e22;
-  }
-
-  &:active:not(:disabled) {
-    background: #0f1114;
-    border-color: #0f1114;
-  }
-
-  &:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .loading-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    border-top: 2px solid white;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-  }
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
 </style>

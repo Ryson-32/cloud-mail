@@ -27,7 +27,7 @@ import {useSettingStore} from "@/store/setting.js";
 import emailScroll from "@/components/email-scroll/index.vue"
 import {emailList, emailDelete, emailLatest} from "@/request/email.js";
 import {starAdd, starCancel} from "@/request/star.js";
-import {defineOptions, onMounted, reactive, ref, watch} from "vue";
+import {defineOptions, onMounted, onBeforeUnmount, reactive, ref, watch} from "vue";
 import {sleep} from "@/utils/time-utils.js";
 import router from "@/router/index.js";
 import {Icon} from "@iconify/vue";
@@ -43,10 +43,17 @@ const scroll = ref({})
 const params = reactive({
   timeSort: 0,
 })
+let isComponentMounted = true; // 控制循环的标志
 
 onMounted(() => {
   emailStore.emailScroll = scroll;
+  isComponentMounted = true;
   latest()
+})
+
+onBeforeUnmount(() => {
+  isComponentMounted = false; // 停止循环
+  emailStore.emailScroll = null; // 清理引用
 })
 
 
@@ -70,7 +77,12 @@ function jumpContent(email) {
 const existIds = new Set();
 
 async function latest() {
-  while (true) {
+  while (isComponentMounted) {
+    // 检查组件是否仍然挂载且scroll ref存在
+    if (!isComponentMounted || !scroll.value) {
+      break;
+    }
+    
     const latestId = scroll.value.latestEmail?.emailId || 0
 
     if (!scroll.value.firstLoad && settingStore.settings.autoRefreshTime) {
@@ -78,7 +90,8 @@ async function latest() {
         const accountId = accountStore.currentAccountId
         const curTimeSort = params.timeSort
         const list = await emailLatest(latestId, accountId)
-        if (accountId === accountStore.currentAccountId && params.timeSort === curTimeSort) {
+        // 再次检查组件状态
+        if (isComponentMounted && scroll.value && accountId === accountStore.currentAccountId && params.timeSort === curTimeSort) {
           if (list.length > 0) {
 
             list.forEach(email => {
@@ -92,6 +105,11 @@ async function latest() {
       } catch (e) {
         console.error(e)
       }
+    }
+    
+    // 在等待前再次检查
+    if (!isComponentMounted) {
+      break;
     }
     await sleep(settingStore.settings.autoRefreshTime * 1000)
   }

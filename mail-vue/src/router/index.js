@@ -58,6 +58,11 @@ const routes = [
         component: () => import('@/views/login/index.vue')
     },
     {
+        path: '/register',
+        name: 'register',
+        component: () => import('@/views/register/index.vue')
+    },
+    {
         path: '/oauth/callback',
         name: 'oauth-callback',
         component: () => import('@/views/oauth/callback.vue')
@@ -84,14 +89,14 @@ router.beforeEach(async (to, from, next) => {
 
     const token = localStorage.getItem('token')
 
-    if (!token && to.name !== 'login' && to.name !== 'oauth-callback') {
+    if (!token && to.name !== 'login' && to.name !== 'register' && to.name !== 'oauth-callback') {
 
         return next({
             name: 'login',
         })
     }
 
-    if (!token && (to.name === 'login' || to.name === 'oauth-callback')) {
+    if (!token && (to.name === 'login' || to.name === 'register' || to.name === 'oauth-callback')) {
         return next()
     }
 
