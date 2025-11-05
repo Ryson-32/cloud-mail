@@ -12,6 +12,7 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import roleService from '../service/role-service';
 import verifyUtils from '../utils/verify-utils';
+import userService from '../service/user-service';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -32,6 +33,7 @@ export async function email(message, env, ctx) {
 			r2Domain,
 			noRecipient
 		} = await settingService.query({ env });
+		const adminEmail = typeof env.admin === 'string' ? env.admin.toLowerCase() : '';
 
 		if (receive === settingConst.receive.CLOSE) {
 			return;
@@ -50,12 +52,14 @@ export async function email(message, env, ctx) {
 		const email = await PostalMime.parse(content);
 
 		const account = await accountService.selectByEmailIncludeDel({ env: env }, message.to);
+		const accountOwner = account ? await userService.selectById({ env }, account.userId) : null;
+		const isAdminAccount = accountOwner && accountOwner.email && accountOwner.email.toLowerCase() === adminEmail;
 
 		if (!account && noRecipient === settingConst.noRecipient.CLOSE) {
 			return;
 		}
 
-		if (account && account.email !== env.admin) {
+		if (account && !isAdminAccount) {
 
 			let { banEmail, banEmailType, availDomain } = await roleService.selectByUserId({ env: env }, account.userId);
 
@@ -122,14 +126,14 @@ export async function email(message, env, ctx) {
 			messageId: email.messageId,
 			userId: account ? account.userId : 0,
 			accountId: account ? account.accountId : 0,
-			isDel: isDel.DELETE,
+			isDel: isDel.NORMAL,
 			status: emailConst.status.SAVING
 		};
 
 		const attachments = [];
 		const cidAttachments = [];
 
-		for (let item of email.attachments) {
+		for (let item of email.attachments || []) {
 			let attachment = { ...item };
 			attachment.key = constant.ATTACHMENT_PREFIX + await fileUtils.getBuffHash(attachment.content) + fileUtils.getExtFileName(item.filename);
 			attachment.size = item.content.length ?? item.content.byteLength;

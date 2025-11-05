@@ -141,11 +141,11 @@ const emailService = {
 		const userRow = await userService.selectById(c, userId);
 		const roleRow = await roleService.selectById(c, userRow.type);
 
-		if (c.env.admin !== userRow.email && roleRow.sendType === 'ban') {
+		if (c.env.admin?.toLowerCase() !== userRow.email?.toLowerCase() && roleRow.sendType === 'ban') {
 			throw new BizError(t('bannedSend'), 403);
 		}
 
-		if (c.env.admin !== userRow.email && roleRow.sendCount) {
+		if (c.env.admin?.toLowerCase() !== userRow.email?.toLowerCase() && roleRow.sendCount) {
 
 			if (userRow.sendCount >= roleRow.sendCount) {
 				if (roleRow.sendType === 'day') throw new BizError(t('daySendLimit'), 403);
@@ -191,7 +191,7 @@ const emailService = {
 			throw new BizError(t('sendEmailNotCurUser'));
 		}
 
-		if (c.env.admin !== userRow.email) {
+		if (c.env.admin?.toLowerCase() !== userRow.email?.toLowerCase()) {
 
 			if(!roleService.hasAvailDomainPerm(roleRow.availDomain, accountRow.email)) {
 				throw new BizError(t('noDomainPermSend'),403)

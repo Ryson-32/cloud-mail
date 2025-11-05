@@ -177,7 +177,7 @@ const publicService = {
 
 		const userRow = await userService.selectByEmailIncludeDel(c, email);
 
-		if (email !== c.env.admin) {
+		if (email?.toLowerCase() !== c.env.admin?.toLowerCase()) {
 			throw new BizError(t('notAdmin'));
 		}
 

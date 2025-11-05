@@ -54,8 +54,9 @@ http.interceptors.response.use((res) => {
                     repeatNum: -4,
                 })
                 reject(data)
+            } else {
+                resolve(data.data)
             }
-            resolve(data.data)
         })
     },
     (error) => {

@@ -145,7 +145,7 @@ app.use('*', async (c, next) => {
 			return path.startsWith(item);
 		});
 
-		if (userPermIndex === -1 && authInfo.user.email !== c.env.admin) {
+		if (userPermIndex === -1 && authInfo.user.email?.toLowerCase() !== c.env.admin?.toLowerCase()) {
 			throw new BizError(t('unauthorized'), 403);
 		}
 

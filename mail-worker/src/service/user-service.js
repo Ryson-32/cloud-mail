@@ -43,7 +43,7 @@ const userService = {
 		const [account, roleRow, permKeys] = await Promise.all([
 			accountService.selectByEmailIncludeDel(c, userRow.email),
 			roleService.selectById(c, userRow.type),
-			userRow.email === c.env.admin ? Promise.resolve(['*']) : permService.userPermKeys(c, userId)
+			userRow.email?.toLowerCase() === c.env.admin?.toLowerCase() ? Promise.resolve(['*']) : permService.userPermKeys(c, userId)
 		]);
 
 		const user = {};
@@ -61,7 +61,7 @@ const userService = {
 		user.oauthUsername = userRow.oauthUsername;
 		user.avatarTemplate = userRow.avatarTemplate;
 
-		if (c.env.admin === userRow.email) {
+		if (c.env.admin?.toLowerCase() === userRow.email?.toLowerCase()) {
 			user.role = constant.ADMIN_ROLE
 		}
 
@@ -379,7 +379,7 @@ const userService = {
 				sendAction.hasPerm = false;
 			}
 
-			if (user.email === c.env.admin) {
+			if (user.email?.toLowerCase() === c.env.admin?.toLowerCase()) {
 				sendAction.sendType = constant.ADMIN_ROLE.sendType;
 				sendAction.sendCount = constant.ADMIN_ROLE.sendCount;
 				sendAction.hasPerm = true;
