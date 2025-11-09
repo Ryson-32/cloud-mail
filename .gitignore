@@ -61,6 +61,8 @@ Thumbs.db
 desktop.ini
 
 # AI 工具文件
+CLAUDE.md
+.claude/
 .serena/
 .cursor/
 .copilot/
