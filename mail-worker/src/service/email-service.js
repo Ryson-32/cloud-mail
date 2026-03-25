@@ -373,39 +373,49 @@ const emailService = {
 			return ''
 		}
 
-		const { document } = parseHTML(content);
+		try {
+			const { document } = parseHTML(content);
 
-		const images = Array.from(document.querySelectorAll('img'));
+			const images = Array.from(document.querySelectorAll('img'));
 
-		const useAtts = []
+			const useAtts = []
 
-		for (const img of images) {
+			for (const img of images) {
 
-			const src = img.getAttribute('src');
-			if (src && src.startsWith('cid:') && cidAttList) {
+				const src = img.getAttribute('src');
+				if (src && src.startsWith('cid:') && cidAttList) {
 
-				const cid = src.replace(/^cid:/, '');
-				const attCidIndex = cidAttList.findIndex(cidAtt => cidAtt.contentId.replace(/^<|>$/g, '') === cid);
+					const cid = src.replace(/^cid:/, '');
+					const attCidIndex = cidAttList.findIndex(cidAtt => {
+						if (!cidAtt?.contentId) {
+							return false;
+						}
+						return cidAtt.contentId.replace(/^<|>$/g, '') === cid;
+					});
 
-				if (attCidIndex > -1) {
-					const cidAtt = cidAttList[attCidIndex];
-					img.setAttribute('src', '{{domain}}' + cidAtt.key);
-					useAtts.push(cidAtt)
+					if (attCidIndex > -1) {
+						const cidAtt = cidAttList[attCidIndex];
+						img.setAttribute('src', '{{domain}}' + cidAtt.key);
+						useAtts.push(cidAtt)
+					}
+
+				}
+
+				if (src && r2domain && src.startsWith(r2domain + '/')) {
+					img.setAttribute('src', src.replace(r2domain + '/', '{{domain}}'));
 				}
 
 			}
 
-			if (src && src.startsWith(r2domain + '/')) {
-				img.setAttribute('src', src.replace(r2domain + '/', '{{domain}}'));
-			}
+			useAtts.forEach(att => {
+				att.type = attConst.type.EMBED
+			})
 
+			return document.toString();
+		} catch (error) {
+			console.error('邮件 HTML 预处理失败，回退原始内容: ', error);
+			return typeof content === 'string' ? content : String(content);
 		}
-
-		useAtts.forEach(att => {
-			att.type = attConst.type.EMBED
-		})
-
-		return document.toString();
 	},
 
 	selectById(c, emailId) {

@@ -17,10 +17,95 @@ import userService from '../service/user-service';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+function normalizeAddressList(addresses) {
+	if (!Array.isArray(addresses)) {
+		return [];
+	}
+
+	return addresses
+		.filter(item => item && typeof item.address === 'string' && item.address.trim() !== '')
+		.map(item => ({
+			address: item.address.trim(),
+			name: typeof item.name === 'string' ? item.name : ''
+		}));
+}
+
+function extractEmailAddress(headerValue, fallback = '') {
+	if (typeof headerValue !== 'string' || headerValue.trim() === '') {
+		return fallback;
+	}
+
+	const match = headerValue.match(/<([^<>@\s]+@[^<>@\s]+)>/);
+	if (match?.[1]) {
+		return match[1].trim();
+	}
+
+	const directMatch = headerValue.match(/([^\s<>"']+@[^\s<>"']+)/);
+	return directMatch?.[1]?.trim() || fallback;
+}
+
+function escapeHtml(content) {
+	return content
+		.replaceAll('&', '&amp;')
+		.replaceAll('<', '&lt;')
+		.replaceAll('>', '&gt;');
+}
+
+function buildFallbackEmail(content, message) {
+	const headers = message?.headers;
+	const fromHeader = headers?.get?.('from') || '';
+	const subject = headers?.get?.('subject') || '';
+	const messageId = headers?.get?.('message-id') || '';
+	const inReplyTo = headers?.get?.('in-reply-to') || '';
+	const references = headers?.get?.('references') || '';
+	const fromAddress = extractEmailAddress(fromHeader, typeof message?.from === 'string' ? message.from.trim() : '');
+	const fromName = fromHeader.replace(/<[^>]+>/g, '').trim() || emailUtils.getName(fromAddress);
+	const bodyParts = content.split(/\r?\n\r?\n/);
+	const rawBody = bodyParts.length > 1 ? bodyParts.slice(1).join('\n\n') : '';
+	const previewText = rawBody.replace(/\0/g, '').trim().slice(0, 20000);
+	const text = previewText || '邮件解析失败，已保存原始邮件预览。';
+
+	return {
+		from: {
+			address: fromAddress,
+			name: fromName
+		},
+		to: [{ address: message.to, name: emailUtils.getName(message.to) }],
+		cc: [],
+		bcc: [],
+		subject,
+		html: `<pre>${escapeHtml(text)}</pre>`,
+		text,
+		attachments: [],
+		inReplyTo,
+		references,
+		messageId
+	};
+}
+
+function normalizeAttachmentContent(content) {
+	if (content instanceof Uint8Array) {
+		return content;
+	}
+
+	if (content instanceof ArrayBuffer) {
+		return new Uint8Array(content);
+	}
+
+	if (ArrayBuffer.isView(content)) {
+		return new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
+	}
+
+	if (typeof content === 'string') {
+		return new TextEncoder().encode(content);
+	}
+
+	return null;
+}
+
 export async function email(message, env, ctx) {
 
 	try {
-
 		const {
 			receive,
 			tgBotToken,
@@ -49,7 +134,28 @@ export async function email(message, env, ctx) {
 			content += new TextDecoder().decode(value);
 		}
 
-		const email = await PostalMime.parse(content);
+		let email = null;
+
+		try {
+			email = await PostalMime.parse(content);
+		} catch (parseError) {
+			console.error('PostalMime 解析失败，启用原始邮件兜底: ', {
+				to: message?.to,
+				from: message?.from,
+				messageId: message?.headers?.get?.('message-id') || ''
+			}, parseError);
+			email = buildFallbackEmail(content, message);
+		}
+		const fromAddress = typeof email?.from?.address === 'string' && email.from.address.trim() !== ''
+			? email.from.address.trim()
+			: (typeof message.from === 'string' ? message.from.trim() : '');
+		const fromName = typeof email?.from?.name === 'string' && email.from.name.trim() !== ''
+			? email.from.name.trim()
+			: emailUtils.getName(fromAddress);
+		const toList = normalizeAddressList(email?.to);
+		const ccList = normalizeAddressList(email?.cc);
+		const bccList = normalizeAddressList(email?.bcc);
+		const recipientList = toList.length > 0 ? toList : [{ address: message.to, name: '' }];
 
 		const account = await accountService.selectByEmailIncludeDel({ env: env }, message.to);
 		const accountOwner = account ? await userService.selectById({ env }, account.userId) : null;
@@ -74,7 +180,7 @@ export async function email(message, env, ctx) {
 				if (verifyUtils.isDomain(item)) {
 
 					const banDomain = item.toLowerCase();
-					const receiveDomain = emailUtils.getDomain(email.from.address.toLowerCase());
+					const receiveDomain = emailUtils.getDomain(fromAddress.toLowerCase());
 
 					if (banDomain === receiveDomain) {
 
@@ -90,7 +196,7 @@ export async function email(message, env, ctx) {
 
 				} else {
 
-					if (item.toLowerCase() === email.from.address.toLowerCase()) {
+					if (item.toLowerCase() === fromAddress.toLowerCase()) {
 
 						if (banEmailType === roleConst.banEmailType.ALL) return;
 
@@ -108,22 +214,22 @@ export async function email(message, env, ctx) {
 
 		}
 
-		const toName = email.to.find(item => item.address === message.to)?.name || '';
+		const toName = recipientList.find(item => item.address.toLowerCase() === message.to.toLowerCase())?.name || '';
 
 		const params = {
 			toEmail: message.to,
 			toName: toName,
-			sendEmail: email.from.address,
-			name: email.from.name || emailUtils.getName(email.from.address),
-			subject: email.subject,
-			content: email.html,
-			text: email.text,
-			cc: email.cc ? JSON.stringify(email.cc) : '[]',
-			bcc: email.bcc ? JSON.stringify(email.bcc) : '[]',
-			recipient: JSON.stringify(email.to),
-			inReplyTo: email.inReplyTo,
-			relation: email.references,
-			messageId: email.messageId,
+			sendEmail: fromAddress,
+			name: fromName,
+			subject: typeof email?.subject === 'string' ? email.subject : '',
+			content: typeof email?.html === 'string' ? email.html : '',
+			text: typeof email?.text === 'string' ? email.text : '',
+			cc: JSON.stringify(ccList),
+			bcc: JSON.stringify(bccList),
+			recipient: JSON.stringify(recipientList),
+			inReplyTo: typeof email?.inReplyTo === 'string' ? email.inReplyTo : '',
+			relation: typeof email?.references === 'string' ? email.references : '',
+			messageId: typeof email?.messageId === 'string' ? email.messageId : '',
 			userId: account ? account.userId : 0,
 			accountId: account ? account.accountId : 0,
 			isDel: isDel.NORMAL,
@@ -133,13 +239,35 @@ export async function email(message, env, ctx) {
 		const attachments = [];
 		const cidAttachments = [];
 
-		for (let item of email.attachments || []) {
-			let attachment = { ...item };
-			attachment.key = constant.ATTACHMENT_PREFIX + await fileUtils.getBuffHash(attachment.content) + fileUtils.getExtFileName(item.filename);
-			attachment.size = item.content.length ?? item.content.byteLength;
-			attachments.push(attachment);
-			if (attachment.contentId) {
-				cidAttachments.push(attachment);
+		for (let item of Array.isArray(email?.attachments) ? email.attachments : []) {
+			try {
+				const normalizedContent = normalizeAttachmentContent(item?.content);
+
+				if (!normalizedContent) {
+					console.warn('跳过异常附件: 无法识别内容类型', {
+						to: message?.to,
+						from: fromAddress,
+						filename: item?.filename || '',
+						contentType: typeof item?.content
+					});
+					continue;
+				}
+
+				let attachment = { ...item };
+				attachment.content = normalizedContent;
+				attachment.key = constant.ATTACHMENT_PREFIX + await fileUtils.getBuffHash(normalizedContent) + fileUtils.getExtFileName(item.filename);
+				attachment.size = normalizedContent.byteLength;
+				attachments.push(attachment);
+				if (attachment.contentId) {
+					cidAttachments.push(attachment);
+				}
+			} catch (attachmentError) {
+				console.error('附件预处理失败，已跳过该附件: ', {
+					to: message?.to,
+					from: fromAddress,
+					filename: item?.filename || '',
+					messageId: message?.headers?.get?.('message-id') || ''
+				}, attachmentError);
 			}
 		}
 
@@ -222,6 +350,10 @@ ${params.text || emailUtils.htmlToText(params.content) || ''}
 
 	} catch (e) {
 
-		console.error('邮件接收异常: ', e);
+		console.error('邮件接收异常: ', {
+			to: message?.to,
+			from: message?.from,
+			messageId: message?.headers?.get?.('message-id') || ''
+		}, e);
 	}
 }
